@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>家庭借款 Offset（对冲）计算</title>
+</head>
+<body>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: phone-first single column — input form with a Calculate button, then results (cards, ledgers, break-evens, grid) that dim until recalculated */
+:root{
+  --bg:#f5f7f6; --surface:#ffffff; --fg:#1c2421; --muted:#5d6a65; --line:#d8dfdb;
+  --you:#0f6e66; --you-soft:#e2f1ee; --lend:#9a3b2c; --lend-soft:#f6e7e3;
+  --good:#1b7a3e; --good-soft:#e3f3e8; --mid:#8a5a00; --mid-soft:#fbf1dc; --bad:#b3261e; --bad-soft:#fbe5e3;
+  --btn:#0f6e66; --btn-fg:#ffffff;
+  --display:"Noto Serif SC","Songti SC",serif; --body:"Noto Sans SC","PingFang SC",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111614; --surface:#19201d; --fg:#e5ece8; --muted:#98a6a0; --line:#2b3531;
+  --you:#5cc2b6; --you-soft:#163230; --lend:#e7907f; --lend-soft:#3a201b;
+  --good:#6fd08f; --good-soft:#173322; --mid:#e8b85c; --mid-soft:#352a14; --bad:#f08a80; --bad-soft:#3d1c1a;
+  --btn:#5cc2b6; --btn-fg:#0d1f1d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111614; --surface:#19201d; --fg:#e5ece8; --muted:#98a6a0; --line:#2b3531;
+  --you:#5cc2b6; --you-soft:#163230; --lend:#e7907f; --lend-soft:#3a201b;
+  --good:#6fd08f; --good-soft:#173322; --mid:#e8b85c; --mid-soft:#352a14; --bad:#f08a80; --bad-soft:#3d1c1a;
+  --btn:#5cc2b6; --btn-fg:#0d1f1d; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:880px;margin:0 auto;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px}
+h1{font-family:var(--display);font-size:clamp(22px,5vw,30px);margin:0;line-height:1.3;text-wrap:balance}
+h2{font-family:var(--display);font-size:17px;margin:0}
+.lede{color:var(--muted);margin:6px 0 0;font-size:14px;max-width:66ch}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* Form */
+form.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:14px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (min-width:720px){.fields.main{grid-template-columns:repeat(4,1fr)}.fields.more{grid-template-columns:repeat(3,1fr)}}
+.field{display:grid;gap:4px;min-width:0;align-content:start}
+.field label{font-size:13px;color:var(--muted);line-height:1.3}
+.field small{font-size:12px;color:var(--muted);min-height:1.2em}
+.inbox{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:var(--bg);overflow:hidden}
+.inbox:focus-within{outline:2px solid var(--you);outline-offset:1px}
+.inbox input{flex:1;min-width:0;border:0;background:transparent;color:var(--fg);font-family:var(--mono);font-size:17px;padding:10px 10px;outline:none}
+.inbox .unit{display:flex;align-items:center;padding:0 10px;color:var(--muted);font-size:13px;border-left:1px solid var(--line);white-space:nowrap}
+select{width:100%;font:inherit;font-size:15px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;min-width:0}
+select:focus-visible{outline:2px solid var(--you);outline-offset:1px}
+details{border-top:1px dashed var(--line);padding-top:12px}
+summary{cursor:pointer;font-size:14px;color:var(--muted);padding:4px 0;list-style-position:inside}
+summary:focus-visible{outline:2px solid var(--you);outline-offset:2px;border-radius:4px}
+details .fields{margin-top:12px}
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;cursor:pointer;border-radius:10px}
+.calc{flex:1 1 200px;background:var(--btn);color:var(--btn-fg);border:0;font-size:17px;font-weight:700;padding:14px 18px;min-height:50px}
+.calc:active{transform:translateY(1px)}
+.calc:focus-visible,.reset:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
+.reset{background:transparent;color:var(--muted);border:1px solid var(--line);padding:13px 16px;min-height:50px;font-size:15px}
+.status{font-size:13px;color:var(--mid);width:100%}
+
+/* Results */
+#results{display:grid;gap:20px;transition:opacity .2s}
+#results.stale{opacity:.45}
+@media (prefers-reduced-motion:reduce){#results{transition:none}}
+.cards{display:grid;grid-template-columns:1fr;gap:10px}
+@media (min-width:640px){.cards{grid-template-columns:repeat(3,1fr)}}
+.card{border-radius:12px;padding:14px 16px;display:grid;gap:2px;background:var(--soft)}
+.card.you{--soft:var(--you-soft);--c:var(--you)} .card.lend{--soft:var(--lend-soft);--c:var(--lend)}
+.card .lbl{font-size:13px;color:var(--muted);line-height:1.35}
+.card b{font-family:var(--mono);font-size:26px;color:var(--c);font-variant-numeric:tabular-nums;line-height:1.3}
+.card small{font-family:var(--mono);font-size:13px;color:var(--muted)}
+.card b.neg{color:var(--bad)}
+
+.ledgers{display:grid;grid-template-columns:1fr;gap:14px}
+@media (min-width:720px){.ledgers{grid-template-columns:1fr 1fr}}
+.ledger{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c);border-radius:12px;padding:14px 16px;min-width:0}
+.ledger.you{--c:var(--you);--soft:var(--you-soft)} .ledger.lend{--c:var(--lend);--soft:var(--lend-soft)}
+.ledger h3{margin:0 0 6px;font-size:15px;color:var(--c)}
+.ledger dl{margin:0;display:grid;grid-template-columns:1fr auto;column-gap:12px}
+.ledger dt,.ledger dd{margin:0;padding:8px 0;border-bottom:1px dashed var(--line)}
+.ledger dt{color:var(--muted);font-size:14px}
+.ledger dd{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:14px}
+.ledger dd small{display:block;color:var(--muted);font-size:12px}
+.ledger dt.tot,.ledger dd.tot{background:var(--soft);border-bottom:0;font-weight:700}
+.ledger dt.tot{padding-left:10px;border-radius:8px 0 0 8px;color:var(--fg)}
+.ledger dd.tot{padding-right:10px;border-radius:0 8px 8px 0;font-size:16px}
+.neg{color:var(--bad)} .pos{color:var(--good)}
+
+.be{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;display:grid;gap:8px}
+.be h2{font-size:15px}
+.be ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.be li{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:baseline;border-bottom:1px dashed var(--line);padding-bottom:6px}
+.be li span{color:var(--muted);font-size:14px}
+.be li strong{font-family:var(--mono);font-size:16px}
+
+.sec{display:grid;gap:10px}
+.sec p{margin:0;color:var(--muted);font-size:14px;max-width:70ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:separate;border-spacing:0;table-layout:fixed;font-size:13px}
+col.c-rate{width:64px} col.c-you{width:84px} col.c-cell{width:86px}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);vertical-align:middle}
+thead th{font-weight:500;color:var(--muted);font-size:12px;background:var(--surface);line-height:1.3}
+th.grp{text-align:center}
+td .a,td .c{display:block;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.35}
+td .c{font-size:11px;opacity:.8}
+.stick{position:sticky;left:0;z-index:1;background:var(--surface);text-align:left}
+thead .stick{z-index:2}
+td.you-col{color:var(--you)}
+td.you-col.neg{color:var(--bad)}
+.stick2{position:sticky;left:64px;z-index:1;background:var(--surface);box-shadow:inset -1px 0 0 var(--line),4px 0 6px -4px rgba(0,0,0,.18)}
+thead .stick2{z-index:2}
+td.g{background:var(--good-soft);color:var(--good)} td.m{background:var(--mid-soft);color:var(--mid)} td.b{background:var(--bad-soft);color:var(--bad)}
+tr.cur td.stick{font-weight:700;color:var(--fg)}
+td.hit{box-shadow:inset 0 0 0 2px var(--fg);font-weight:700}
+.scroll-hint{font-size:12px;color:var(--muted)}
+@media (min-width:760px){.scroll-hint{display:none}}
+
+.notes{font-size:13px;color:var(--muted)}
+.notes ul{margin:0;padding-left:18px;display:grid;gap:4px}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>家庭借款放进房贷 Offset（对冲）账户</h1>
+    <p class="lede">出借人借钱给你放进 Offset（对冲）账户，到期连本带息用澳元还。你省房贷利息，出借人拿到比中国银行高的利息，但承担澳元下跌的风险。不计税。</p>
+  </header>
+
+  <form class="panel" id="form" novalidate>
+    <div class="fields main">
+      <div class="field">
+        <label for="usd">借款金额</label>
+        <div class="inbox"><input id="usd" type="number" inputmode="decimal" value="10000" step="1000" min="0"><span class="unit">美元</span></div>
+        <small id="usdEq"></small>
+      </div>
+      <div class="field">
+        <label for="loanRate">我的房贷利率</label>
+        <div class="inbox"><input id="loanRate" type="number" inputmode="decimal" value="6.6" step="0.05"><span class="unit">%</span></div>
+        <small></small>
+      </div>
+      <div class="field">
+        <label for="lendRate">给出借人的利率</label>
+        <div class="inbox"><input id="lendRate" type="number" inputmode="decimal" value="4" step="0.25"><span class="unit">%</span></div>
+        <small></small>
+      </div>
+      <div class="field">
+        <label for="fall">澳元一年内下跌</label>
+        <div class="inbox"><input id="fall" type="number" inputmode="decimal" value="0" step="0.5"><span class="unit">%</span></div>
+        <small>负数 = 澳元上涨</small>
+      </div>
+    </div>
+
+    <details>
+      <summary>更多假设（已填默认值）</summary>
+      <div class="fields more">
+        <div class="field">
+          <label for="months">借款期限</label>
+          <div class="inbox"><input id="months" type="number" inputmode="numeric" value="12" step="1" min="1" max="60"><span class="unit">月</span></div>
+        </div>
+        <div class="field">
+          <label for="boc">出借人存中国银行</label>
+          <div class="inbox"><input id="boc" type="number" inputmode="decimal" value="0.95" step="0.05" min="0"><span class="unit">%</span></div>
+        </div>
+        <div class="field">
+          <label for="audusd">1 澳元 = 美元</label>
+          <div class="inbox"><input id="audusd" type="number" inputmode="decimal" value="0.6957" step="0.0001" min="0.01"><span class="unit">USD</span></div>
+        </div>
+        <div class="field">
+          <label for="audcny">1 澳元 = 人民币</label>
+          <div class="inbox"><input id="audcny" type="number" inputmode="decimal" value="4.66" step="0.01" min="0.01"><span class="unit">CNY</span></div>
+        </div>
+        <div class="field">
+          <label for="route">汇款成本</label>
+          <select id="route">
+            <option value="low">低成本</option>
+            <option value="big">大银行</option>
+            <option value="none">不计</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="payer">汇款成本谁付</label>
+          <select id="payer">
+            <option value="you">我付</option>
+            <option value="lender">出借人付</option>
+          </select>
+        </div>
+      </div>
+    </details>
+
+    <div class="actions">
+      <button type="submit" class="calc" id="calcBtn">计算</button>
+      <button type="button" class="reset" id="resetBtn">恢复默认</button>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+    </div>
+  </form>
+
+  <div id="results" aria-live="polite">
+    <section class="cards" aria-label="主要结果">
+      <div class="card you"><span class="lbl">我省下的钱</span><b id="cYou"></b><small id="cYouSub"></small></div>
+      <div class="card lend"><span class="lbl">出借人收到的利息</span><b id="cLend"></b><small id="cLendSub"></small></div>
+      <div class="card lend"><span class="lbl" id="cFxLbl">出借人考虑汇率后的收益</span><b id="cFx"></b><small id="cFxSub"></small></div>
+    </section>
+
+    <section class="ledgers">
+      <div class="ledger you">
+        <h3>我（借款人）· 澳元</h3>
+        <dl>
+          <dt>借入金额</dt><dd id="yAmt"></dd>
+          <dt>房贷利息省下</dt><dd id="ySaved"></dd>
+          <dt>付给出借人利息</dt><dd id="yPaid"></dd>
+          <dt>汇款成本</dt><dd id="yCost"></dd>
+          <dt class="tot">我省下</dt><dd class="tot" id="yNet"></dd>
+        </dl>
+      </div>
+      <div class="ledger lend">
+        <h3>出借人（中国）· 澳元 / 人民币</h3>
+        <dl>
+          <dt>借出金额</dt><dd id="lAmt"></dd>
+          <dt>收到利息</dt><dd id="lInt"></dd>
+          <dt>汇款成本</dt><dd id="lCost"></dd>
+          <dt id="lFxLbl">澳元下跌损失</dt><dd id="lFx"></dd>
+          <dt class="tot">考虑汇率后收益</dt><dd class="tot" id="lNet"></dd>
+          <dt>存中国银行能拿</dt><dd id="lBoc"></dd>
+          <dt>比存中国银行多赚</dt><dd id="lMore"></dd>
+        </dl>
+      </div>
+    </section>
+
+    <section class="be" aria-label="盈亏平衡点">
+      <h2>盈亏平衡点</h2>
+      <ul>
+        <li><span>我最多能给出借人的利率</span><strong id="beRate"></strong></li>
+        <li><span>澳元跌超过这个，出借人不如存中国银行</span><strong id="beBoc"></strong></li>
+        <li><span>澳元跌超过这个，出借人亏本</span><strong id="beZero"></strong></li>
+      </ul>
+    </section>
+
+    <section class="sec">
+      <h2>利率和汇率一起变时</h2>
+      <p>每行是给出借人的一个利率。“我省下”是你的结果；右边各列是出借人在澳元不同跌幅下的收益（上：澳元，下：人民币）。粗框是当前输入。</p>
+      <div class="legend">
+        <span><i style="background:var(--good-soft);box-shadow:inset 0 0 0 1px var(--good)"></i>比存中国银行多</span>
+        <span><i style="background:var(--mid-soft);box-shadow:inset 0 0 0 1px var(--mid)"></i>赚了，但不如存中国银行</span>
+        <span><i style="background:var(--bad-soft);box-shadow:inset 0 0 0 1px var(--bad)"></i>亏本</span>
+      </div>
+      <div class="scroll-hint">← 左右滑动查看更多跌幅，利率和“我省下”两列固定 →</div>
+      <div class="table-scroll">
+        <table id="grid"></table>
+      </div>
+    </section>
+  </div>
+
+  <section class="notes">
+    <ul>
+      <li>用澳元还款，汇率风险由出借人承担。“澳元下跌损失”是本息合计在澳元下跌后换回人民币少拿的部分。</li>
+      <li>汇率：AUD/USD 0.6957、AUD/CNY 4.66 来自 OFX（2026年10月21日），请换成当天汇率。</li>
+      <li>汇款成本是估计值。低成本：汇入 0.3% + A$60，汇回 0.5% + A$20，付利息 0.5% + A$20。大银行：汇入 0.6% + A$110，汇回 3% + A$30，付利息 3% + A$30。</li>
+      <li>房贷利率按期限内不变计算。利息在到期时和本金一起还。不计澳洲和中国的税。</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const ROUTES={low:{inP:.003,inF:60,outP:.005,outF:20,intP:.005,intF:20},
+              big:{inP:.006,inF:110,outP:.03,outF:30,intP:.03,intF:30},
+              none:{inP:0,inF:0,outP:0,outF:0,intP:0,intF:0}};
+const DEFAULTS={usd:10000,loanRate:6.6,lendRate:4,fall:0,months:12,boc:0.95,audusd:0.6957,audcny:4.66,route:"low",payer:"you"};
+const aud=(v,d=0)=>(v<0?"−":"")+"A$"+Math.abs(v).toLocaleString("en-AU",{minimumFractionDigits:d,maximumFractionDigits:d});
+const sAud=(v,d=0)=>(v>0?"+":"")+aud(v,d);
+
+function read(){
+  const n=id=>{const v=parseFloat($(id).value);return isFinite(v)?v:DEFAULTS[id];};
+  return {usd:Math.max(0,n("usd")),loan:n("loanRate")/100,lend:n("lendRate")/100,fall:n("fall")/100,
+    T:Math.max(1,Math.round(n("months")))/12,audusd:n("audusd")||DEFAULTS.audusd,audcny:n("audcny")||DEFAULTS.audcny,
+    boc:n("boc")/100,route:ROUTES[$("route").value],payer:$("payer").value};
+}
+
+// Everything in AUD at today's rate. AUD repayment: lender's AUD shrinks in CNY terms by `fall`.
+function model(p,lend=p.lend,fall=p.fall){
+  const A=p.usd/p.audusd, k=p.route;
+  const saved=A*p.loan*p.T, I=A*lend*p.T;
+  const cost=(A*k.inP+k.inF)+(A*k.outP+k.outF)+(I*k.intP+k.intF);
+  const youCost=p.payer==="you"?cost:0, lendCost=p.payer==="lender"?cost:0;
+  const you=saved-I-youCost;
+  const back=A+I-lendCost;
+  const fxLoss=back*fall;
+  const lendNet=back-fxLoss-A;
+  const boc=A*p.boc*p.T;
+  return {A,saved,I,youCost,lendCost,you,fxLoss,lendNet,boc,more:lendNet-boc,back};
+}
+
+function render(){
+  const p=read(), r=model(p);
+  const cny=v=>(v<0?"−":v>0?"+":"")+"¥"+Math.round(Math.abs(v)*p.audcny).toLocaleString("zh-CN");
+  const yuan=v=>"¥"+Math.round(v*p.audcny).toLocaleString("zh-CN");
+  const two=(a,c,cls="")=>`<span class="${cls}">${a}</span><small>${c}</small>`;
+  const mo=Math.round(p.T*12);
+
+  $("cYou").textContent=sAud(r.you); $("cYou").className=r.you<0?"neg":"";
+  $("cYouSub").textContent=`${mo}个月 · 利差 ${((p.loan-p.lend)*100).toFixed(2)}%`;
+  $("cLend").textContent=aud(r.I);
+  $("cLendSub").textContent=yuan(r.I)+" · 存中国银行 "+aud(r.boc);
+  $("cFxLbl").textContent=p.fall===0?"出借人考虑汇率后（澳元不跌）":`出借人考虑汇率后（澳元${p.fall>0?"跌":"涨"} ${Math.abs(+(p.fall*100).toFixed(2))}%）`;
+  $("cFx").textContent=sAud(r.lendNet); $("cFx").className=r.lendNet<0?"neg":"";
+  $("cFxSub").textContent=cny(r.lendNet)+" · 比中国银行"+(r.more>=0?"多 ":"少 ")+aud(Math.abs(r.more));
+
+  $("yAmt").textContent=aud(r.A,2);
+  $("ySaved").textContent=aud(r.saved,2);
+  $("yPaid").textContent=aud(-r.I,2);
+  $("yCost").textContent=p.payer==="you"?aud(-r.youCost,2):"出借人付";
+  $("yNet").textContent=sAud(r.you,2); $("yNet").classList.toggle("neg",r.you<0);
+
+  $("lAmt").innerHTML=two(aud(r.A,2),yuan(r.A));
+  $("lInt").innerHTML=two(aud(r.I,2),yuan(r.I));
+  $("lCost").innerHTML=p.payer==="lender"?two(aud(-r.lendCost,2),cny(-r.lendCost)):"我付";
+  $("lFxLbl").textContent=p.fall>=0?"澳元下跌损失":"澳元上涨收益";
+  $("lFx").innerHTML=two(sAud(-r.fxLoss,2),cny(-r.fxLoss));
+  $("lNet").innerHTML=two(sAud(r.lendNet,2),cny(r.lendNet),r.lendNet<0?"neg":"");
+  $("lBoc").innerHTML=two(aud(r.boc,2),yuan(r.boc));
+  $("lMore").innerHTML=two(sAud(r.more,2),cny(r.more),r.more<0?"neg":"pos");
+
+  const k=p.route, fixedYou=p.payer==="you"?(r.A*(k.inP+k.outP)+k.inF+k.outF+k.intF):0;
+  const maxLend=(r.saved-fixedYou)/(r.A*p.T*(1+(p.payer==="you"?k.intP:0)));
+  $("beRate").textContent=r.A>0?(maxLend*100).toFixed(2)+"%":"—";
+  $("beBoc").textContent=r.back>0?((r.back-r.A-r.boc)/r.back*100).toFixed(1)+"%":"—";
+  $("beZero").textContent=r.back>0?((r.back-r.A)/r.back*100).toFixed(1)+"%":"—";
+
+  const rates=[2,2.5,3,3.5,4,4.5,5,5.5,6], cur=+(p.lend*100).toFixed(2);
+  if(!rates.some(x=>Math.abs(x-cur)<1e-6)) rates.push(cur), rates.sort((a,b)=>a-b);
+  const falls=[0,2,4,6,8,10], curF=+(p.fall*100).toFixed(2);
+  if(!falls.some(x=>Math.abs(x-curF)<1e-6)) falls.push(curF), falls.sort((a,b)=>a-b);
+  const cols=`<colgroup><col class="c-rate"><col class="c-you">${falls.map(()=>'<col class="c-cell">').join("")}</colgroup>`;
+  const head=`<thead><tr><th class="stick" rowspan="2">利率</th><th class="stick2" rowspan="2">我省下</th><th class="grp" colspan="${falls.length}">出借人收益 · 澳元下跌</th></tr>`+
+    `<tr>${falls.map(f=>`<th>${f<0?"涨"+(-f):f}%</th>`).join("")}</tr></thead>`;
+  const body=rates.map(rt=>{
+    const isCur=Math.abs(rt-cur)<1e-6, y=model(p,rt/100,0).you;
+    const cells=falls.map(f=>{
+      const m=model(p,rt/100,f/100), cls=m.lendNet<0?"b":m.more<0?"m":"g";
+      const hit=isCur&&Math.abs(f-curF)<1e-6?" hit":"";
+      return `<td class="${cls}${hit}"><span class="a">${sAud(m.lendNet)}</span><span class="c">${cny(m.lendNet)}</span></td>`;
+    }).join("");
+    return `<tr${isCur?' class="cur"':''}><td class="stick">${rt}%</td><td class="stick2 you-col ${y<0?"neg":""}"><span class="a">${sAud(y)}</span></td>${cells}</tr>`;
+  }).join("");
+  $("grid").innerHTML=cols+head+"<tbody>"+body+"</tbody>";
+  const tw=64+84+86*falls.length; $("grid").style.width=tw+"px";
+}
+
+function updateEq(){
+  const p=read(), A=p.usd/p.audusd;
+  $("usdEq").textContent="≈ "+aud(A)+" ≈ ¥"+Math.round(A*p.audcny).toLocaleString("zh-CN");
+}
+function markStale(){
+  $("results").classList.add("stale");
+  $("calcBtn").textContent="重新计算";
+  $("status").textContent="输入已改，点“重新计算”更新结果。";
+  updateEq();
+}
+function calculate(scroll){
+  render();
+  $("results").classList.remove("stale");
+  $("calcBtn").textContent="计算";
+  $("status").textContent="";
+  if(scroll){
+    const reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    $("results").scrollIntoView({behavior:reduce?"auto":"smooth",block:"start"});
+  }
+}
+$("form").addEventListener("submit",e=>{e.preventDefault();document.activeElement&&document.activeElement.blur();calculate(true);});
+$("resetBtn").addEventListener("click",()=>{
+  for(const k in DEFAULTS) $(k).value=DEFAULTS[k];
+  updateEq(); calculate(false);
+});
+document.querySelectorAll("#form input,#form select").forEach(el=>el.addEventListener("input",markStale));
+updateEq(); calculate(false);
+</script>
+</body>
+</html>
